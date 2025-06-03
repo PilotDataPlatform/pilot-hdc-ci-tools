@@ -1,0 +1,69 @@
+name: Deployment job
+
+on:
+  workflow_call:
+    inputs:
+      hdc_service_name:
+        required: true
+        type: string
+        description: 'Name of the service we are deploying'
+      robot_user:
+        type: string
+        required: false
+        description: 'Git robot user account'
+        default: 'robot_user'
+      pyproject_folder:
+        type: string
+        required: false
+        description: 'Folder  that contains the pyproject file'
+        default: '.'
+    secrets:
+      hdc_infra_repo:
+        required: true
+        description: 'HDC infra repo URL (secret)'
+      base_file:
+        required: true
+        description: 'Path to base file (secret)'
+
+jobs:
+  get-version:
+    if: github.event_name != 'pull_request'
+    runs-on: pilot-dev-runners
+    outputs:
+      app_version: ${{steps.get-version.outputs.app_version}}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.sha }}  # Ensures the workflow checks out the commit it was triggered on
+          sparse-checkout: '${{ inputs.pyproject_folder }}/pyproject.toml'
+      - name: Get Version
+        id: get-version
+        shell: bash
+        run: |
+          cd ${{ inputs.pyproject_folder }}
+          echo "app_version=`sed -n 's/^ *version.*=.*"\([^"]*\)".*/\1/p' pyproject.toml`" >> $GITHUB_OUTPUT && ls -lah
+
+  trigger_hdc_dev_deployment:
+    needs: [get-version]
+    runs-on: pilot-dev-runners
+    steps:
+      - name: Checkout Infra repo
+        run: |
+          git clone https://${{ inputs.robot_user }}:${{ secrets.HDC_CSCS_INFRA_READ_WRITE_TOKEN }}@${{ secrets.hdc_infra_repo }}
+
+      - name: Configure Git User
+        run: |
+          # navigate to the repo directory
+          cd $(basename ${{ secrets.hdc_infra_repo }} .git)
+          git config user.name "GitHub Actions"
+          git config user.email "github-actions@users.noreply.indocresearch.org"
+
+      - name: Update service version in Infra repo
+        run: |
+          cd $(basename ${{ secrets.hdc_infra_repo }} .git)
+          BASE_FILE="${{ secrets.base_file }}"
+          sed -i 's/\(${{ inputs.hdc_service_name }}_app_version\s*=\s*"\)[0-9]*\.[0-9]*\.[0-9]*\("\)/\1${{needs.get-version.outputs.app_version}}\2/' $BASE_FILE
+          git add $BASE_FILE
+          git commit -m "Deploy ${{ inputs.hdc_service_name }} ${{needs.get-version.outputs.app_version}} [target:helm_release.${{ inputs.hdc_service_name }}] "
+          git push origin main

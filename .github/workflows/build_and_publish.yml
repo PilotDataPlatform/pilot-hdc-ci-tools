@@ -1,0 +1,156 @@
+name: Build and push jobs
+
+on:
+  workflow_call:
+    inputs:
+      matrix_config:
+        required: true
+        type: string
+        description: 'JSON array of docker image targets'
+      service_name:
+        type: string
+        required: true
+        description: 'Service name that will be used to properly set the docker image name'
+      path_to_dockerfile:
+        type: string
+        required: false
+        description: 'Path to Dockerfile to use during the build'
+        default: "Dockerfile"
+      docker_build_context:
+        type: string
+        required: false
+        description: 'Context to use during docker build'
+        default: "."
+      path_to_pyproject:
+        type: string
+        required: false
+        description: 'Path to the pyproject file.'
+        default: "pyproject.toml"
+      registry_subpath:
+        type: string
+        required: false
+        description: 'Path to the pyproject file.'
+        default: ""
+    secrets:
+      docker_registry_url:
+        required: true
+        description: 'Docker registry URL (secret)'
+      HDC_ROBOT_USER:
+        required: true
+      HDC_ROBOT_PASSWORD:
+        required: true
+      HDC_SERVICES_EXTERNAL_ROBOT_USER:
+        required: true
+      HDC_SERVICES_EXTERNAL_ROBOT_PASSWORD:
+        required: true
+
+jobs:
+  get-version:
+    runs-on: pilot-dev-runners
+    outputs:
+      app_version: ${{steps.get-version.outputs.app_version}}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.sha }}  # Ensures the workflow checks out the commit it was triggered on
+      - name: Get Version
+        id: get-version
+        shell: bash
+        run: |
+          BASE_VERSION=`sed -n 's/^ *version.*=.*"\([^"]*\)".*/\1/p' ${{ inputs.path_to_pyproject }}`
+          echo "app_version=$BASE_VERSION" >> $GITHUB_OUTPUT
+  build-and-push-docker-image:
+    needs: [get-version]
+    name: Build Docker images and push to repositories
+    runs-on: pilot-dev-runners
+
+    strategy:
+      matrix:
+        docker_image_target: ${{fromJson(inputs.matrix_config)}}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.sha }}  # Ensures the workflow checks out the commit it was triggered on
+          fetch-tags: 'true'
+      - name: Login to hdc services external # to pull the buildkit image
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ secrets.docker_registry_url }}
+          username: ${{ secrets.HDC_SERVICES_EXTERNAL_ROBOT_USER }}
+          password: ${{ secrets.HDC_SERVICES_EXTERNAL_ROBOT_PASSWORD }}
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=${{ secrets.docker_registry_url }}/hdc-services-external/buildkit:buildx-stable-1
+      - name: Login to Github Packages
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ secrets.docker_registry_url }}
+          username: ${{ secrets.HDC_ROBOT_USER }}
+          password: ${{ secrets.HDC_ROBOT_PASSWORD }}
+      - name: Check if git tag exists
+        run: |
+          if git rev-parse "refs/tags/${{ needs.get-version.outputs.app_version }}" >/dev/null 2>&1; then
+            echo "Tag ${{ needs.get-version.outputs.app_version }} exists"
+            exit 1
+          else
+            echo "Tag ${{ needs.get-version.outputs.app_version }} does not exist"
+          fi
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: |
+            ${{ secrets.docker_registry_url }}/hdc-services-image${{ inputs.registry_subpath != '' && format('/{0}', inputs.registry_subpath) || '' }}/${{ inputs.service_name }}
+          sep-tags: ','
+          tags: |
+            type=raw,prefix=${{ matrix.docker_image_target }}-,suffix=,value=${{needs.get-version.outputs.app_version}}
+      - name: Image digest
+        run: echo ${{ steps.meta.outputs.tags }}
+      - name: Check if Docker image tags exist
+        shell: bash
+        run: |
+          if docker manifest inspect ${{ steps.meta.outputs.tags }} >/dev/null; then
+            echo "Docker image with tag already exists. Please update the version."
+            exit 1
+          else
+            echo "Image tags do not exist, proceeding..."
+          fi
+      - name: Build image and push to GitHub Container Registry
+        uses: docker/build-push-action@v2
+        with:
+          # relative path to the place where source code with Dockerfile is located
+          context: ${{ inputs.docker_build_context }}
+          file: ${{ inputs.path_to_dockerfile }}
+          # Note: tags has to be all lower-case
+          tags: ${{ steps.meta.outputs.tags }}
+          # build on feature branches, push only on main branch
+          push: ${{ github.event_name != 'pull_request' }}
+          target: ${{ matrix.docker_image_target }}-image
+
+  push-new-git-tag:
+    needs: [get-version,build-and-push-docker-image]
+    name: Create and push new git tag
+    runs-on: pilot-dev-runners
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.sha }}  # Ensures the workflow checks out the commit it was triggered on
+
+      - name: Configure Git User
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "github-actions@users.noreply.indocresearch.org"
+
+      - name: Push Git Tag
+        run: |
+          NEW_TAG=${{ needs.get-version.outputs.app_version }}
+          git tag $NEW_TAG
+          git push origin $NEW_TAG

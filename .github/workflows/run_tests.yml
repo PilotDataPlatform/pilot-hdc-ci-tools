@@ -1,0 +1,105 @@
+name: Run Tests
+
+on:
+  workflow_call:
+    inputs:
+      python_version:
+        description: 'Python version to use.'
+        type: string
+        required: false
+        default: "3.10.12"
+      min_coverage_percent:
+        description: 'Minimum coverage % to have. Fail if test coverage is less than that.'
+        type: number
+        required: true
+        default: 95
+      extra_pytest_options:
+        description: 'Extra flags that can be passed to the pytest command if needed.'
+        type: string
+        required: false
+        default: ""
+      coverage_target:
+        description: 'Target to run the coverage report against. Default is "app"'
+        type: string
+        required: false
+        default: "app"
+      poetry_directory:
+        description: 'Path to pass to the "--directory" flag. Defaults to "."'
+        type: string
+        required: false
+        default: "."
+      pytest_directory:
+        description: 'Path to pass to the "pytest" command. Defaults to "."'
+        type: string
+        required: false
+        default: "."
+      docker_login:
+        type: boolean
+        required: false
+        description: 'If set to true, we will login vs the docker registry.'
+        default: false
+      additional_configuration_commands:
+        description: "Additional commands to configure tests execution."
+        type: string
+        required: false
+        default: ""
+
+    secrets:
+      docker_registry_url:
+        required: true
+        description: 'Docker registry URL (secret)'
+      HDC_SERVICES_EXTERNAL_ROBOT_USER:
+        required: true
+      HDC_SERVICES_EXTERNAL_ROBOT_PASSWORD:
+        required: true
+
+jobs:
+  tests:
+    runs-on: pilot-dev-runners
+    env:
+      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: "/run/docker/docker.sock"
+    steps:
+      - name: Login to Internal Docker Registry
+        if: ${{ inputs.docker_login }}
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ secrets.docker_registry_url }}
+          username: ${{ secrets.HDC_SERVICES_EXTERNAL_ROBOT_USER }}
+          password: ${{ secrets.HDC_SERVICES_EXTERNAL_ROBOT_PASSWORD }}
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Set up cache
+        id: cached-poetry-dependencies
+        uses: actions/cache@v3
+        with:
+          path: .venv
+          key: venv-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Ensure cache is healthy
+        if: steps.cached-poetry-dependencies.outputs.cache-hit == 'true'
+        run: timeout 10s poetry run pip --version || rm -rf .venv
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --directory ${{ inputs.poetry_directory }}
+
+      - name: Run pre-commit hooks
+        uses: pre-commit/action@v3.0.1
+
+      - name: Additional test configurations
+        if: ${{ inputs.additional_configuration_commands != '' }}
+        run: ${{ inputs.additional_configuration_commands }}
+
+      - name: Run tests
+        run: poetry run --directory ${{ inputs.poetry_directory }} pytest ${{ inputs.pytest_directory}} -vvv --exitfirst --cov=${{ inputs.coverage_target }} ${{ inputs.extra_pytest_options }} --cov-report=term --cov-report=xml --cov-fail-under=${{ inputs.min_coverage_percent }}
+
+      - name: Coverage report comment
+        uses: mishakav/pytest-coverage-comment@v1.1.42
+        with:
+          pytest-xml-coverage-path: ./coverage.xml
+          coverage-path-prefix: app/
