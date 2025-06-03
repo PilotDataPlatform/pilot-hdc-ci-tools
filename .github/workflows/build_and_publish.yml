@@ -32,7 +32,7 @@ on:
         description: 'Path to the pyproject file.'
         default: ""
     secrets:
-      docker_registry_url:
+      DOCKER_REGISTRY_URL:
         required: true
         description: 'Docker registry URL (secret)'
       HDC_ROBOT_USER:
@@ -78,7 +78,7 @@ jobs:
       - name: Login to hdc services external # to pull the buildkit image
         uses: docker/login-action@v1
         with:
-          registry: ${{ secrets.docker_registry_url }}
+          registry: ${{ secrets.DOCKER_REGISTRY_URL }}
           username: ${{ secrets.HDC_SERVICES_EXTERNAL_ROBOT_USER }}
           password: ${{ secrets.HDC_SERVICES_EXTERNAL_ROBOT_PASSWORD }}
       - name: Set up Docker Buildx
@@ -86,11 +86,11 @@ jobs:
         uses: docker/setup-buildx-action@v3
         with:
           driver-opts: |
-            image=${{ secrets.docker_registry_url }}/hdc-services-external/buildkit:buildx-stable-1
+            image=${{ secrets.DOCKER_REGISTRY_URL }}/hdc-services-external/buildkit:buildx-stable-1
       - name: Login to Github Packages
         uses: docker/login-action@v1
         with:
-          registry: ${{ secrets.docker_registry_url }}
+          registry: ${{ secrets.DOCKER_REGISTRY_URL }}
           username: ${{ secrets.HDC_ROBOT_USER }}
           password: ${{ secrets.HDC_ROBOT_PASSWORD }}
       - name: Check if git tag exists
@@ -106,7 +106,7 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: |
-            ${{ secrets.docker_registry_url }}/hdc-services-image${{ inputs.registry_subpath != '' && format('/{0}', inputs.registry_subpath) || '' }}/${{ inputs.service_name }}
+            ${{ secrets.DOCKER_REGISTRY_URL }}/hdc-services-image${{ inputs.registry_subpath != '' && format('/{0}', inputs.registry_subpath) || '' }}/${{ inputs.service_name }}
           sep-tags: ','
           tags: |
             type=raw,prefix=${{ matrix.docker_image_target }}-,suffix=,value=${{needs.get-version.outputs.app_version}}

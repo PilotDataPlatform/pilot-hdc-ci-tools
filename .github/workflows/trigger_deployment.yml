@@ -18,10 +18,10 @@ on:
         description: 'Folder  that contains the pyproject file'
         default: '.'
     secrets:
-      hdc_infra_repo:
+      HDC_INFRA_REPO:
         required: true
         description: 'HDC infra repo URL (secret)'
-      base_file:
+      BASE_FILE:
         required: true
         description: 'Path to base file (secret)'
 
@@ -50,19 +50,19 @@ jobs:
     steps:
       - name: Checkout Infra repo
         run: |
-          git clone https://${{ inputs.robot_user }}:${{ secrets.HDC_CSCS_INFRA_READ_WRITE_TOKEN }}@${{ secrets.hdc_infra_repo }}
+          git clone https://${{ inputs.robot_user }}:${{ secrets.HDC_CSCS_INFRA_READ_WRITE_TOKEN }}@${{ secrets.HDC_INFRA_REPO }}
 
       - name: Configure Git User
         run: |
           # navigate to the repo directory
-          cd $(basename ${{ secrets.hdc_infra_repo }} .git)
+          cd $(basename ${{ secrets.HDC_INFRA_REPO }} .git)
           git config user.name "GitHub Actions"
           git config user.email "github-actions@users.noreply.indocresearch.org"
 
       - name: Update service version in Infra repo
         run: |
-          cd $(basename ${{ secrets.hdc_infra_repo }} .git)
-          BASE_FILE="${{ secrets.base_file }}"
+          cd $(basename ${{ secrets.HDC_INFRA_REPO }} .git)
+          BASE_FILE="${{ secrets.BASE_FILE }}"
           sed -i 's/\(${{ inputs.hdc_service_name }}_app_version\s*=\s*"\)[0-9]*\.[0-9]*\.[0-9]*\("\)/\1${{needs.get-version.outputs.app_version}}\2/' $BASE_FILE
           git add $BASE_FILE
           git commit -m "Deploy ${{ inputs.hdc_service_name }} ${{needs.get-version.outputs.app_version}} [target:helm_release.${{ inputs.hdc_service_name }}] "
