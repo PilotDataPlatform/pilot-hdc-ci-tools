@@ -28,7 +28,7 @@ on:
 jobs:
   get-version:
     if: github.event_name != 'pull_request'
-    runs-on: pilot-dev-runners
+    runs-on: pilot-dev-runners-public
     outputs:
       app_version: ${{steps.get-version.outputs.app_version}}
     steps:
@@ -46,7 +46,7 @@ jobs:
 
   trigger_hdc_dev_deployment:
     needs: [get-version]
-    runs-on: pilot-dev-runners
+    runs-on: pilot-dev-runners-public
     steps:
       - name: Checkout Infra repo
         run: |
