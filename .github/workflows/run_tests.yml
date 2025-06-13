@@ -45,7 +45,7 @@ on:
         default: ""
 
     secrets:
-      DOCKER_REGISTRY_URL:
+      HDC_DOCKER_REGISTRY:
         required: true
         description: 'Docker registry URL (secret)'
       HDC_SERVICES_EXTERNAL_ROBOT_USER:
@@ -63,7 +63,7 @@ jobs:
         if: ${{ inputs.docker_login }}
         uses: docker/login-action@v1
         with:
-          registry: ${{ secrets.DOCKER_REGISTRY_URL }}
+          registry: ${{ secrets.HDC_DOCKER_REGISTRY }}
           username: ${{ secrets.HDC_SERVICES_EXTERNAL_ROBOT_USER }}
           password: ${{ secrets.HDC_SERVICES_EXTERNAL_ROBOT_PASSWORD }}
       - name: Checkout repository

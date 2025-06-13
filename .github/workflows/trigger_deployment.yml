@@ -21,7 +21,7 @@ on:
       HDC_INFRA_REPO:
         required: true
         description: 'HDC infra repo URL (secret)'
-      BASE_FILE:
+      HDC_BASE_FILE:
         required: true
         description: 'Path to base file (secret)'
 
@@ -62,8 +62,8 @@ jobs:
       - name: Update service version in Infra repo
         run: |
           cd $(basename ${{ secrets.HDC_INFRA_REPO }} .git)
-          BASE_FILE="${{ secrets.BASE_FILE }}"
-          sed -i 's/\(${{ inputs.hdc_service_name }}_app_version\s*=\s*"\)[0-9]*\.[0-9]*\.[0-9]*\("\)/\1${{needs.get-version.outputs.app_version}}\2/' $BASE_FILE
-          git add $BASE_FILE
+          HDC_BASE_FILE="${{ secrets.HDC_BASE_FILE }}"
+          sed -i 's/\(${{ inputs.hdc_service_name }}_app_version\s*=\s*"\)[0-9]*\.[0-9]*\.[0-9]*\("\)/\1${{needs.get-version.outputs.app_version}}\2/' $HDC_BASE_FILE
+          git add $HDC_BASE_FILE
           git commit -m "Deploy ${{ inputs.hdc_service_name }} ${{needs.get-version.outputs.app_version}} [target:helm_release.${{ inputs.hdc_service_name }}] "
           git push origin main
