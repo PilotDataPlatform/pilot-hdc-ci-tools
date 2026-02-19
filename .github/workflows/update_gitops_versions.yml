@@ -40,15 +40,19 @@ jobs:
           ref: main
 
       - name: Install yq
-        uses: mikefarah/yq@v4
+        env:
+          YQ_VERSION: v4.52.4
+        run: |
+          wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          chmod +x /usr/local/bin/yq
+          yq --version
 
       - name: Validate service key exists
         env:
           SERVICE_KEY: ${{ inputs.service_key }}
-          VERSIONS_FILE: ${{ inputs.versions_file }}
         run: |
-          if ! yq -e ".[\"$SERVICE_KEY\"]" "$VERSIONS_FILE" > /dev/null 2>&1; then
-            echo "::error::service_key '$SERVICE_KEY' not found in $VERSIONS_FILE"
+          if ! yq -e '.[env(SERVICE_KEY)]' "${{ inputs.versions_file }}" > /dev/null 2>&1; then
+            echo "::error::service_key '$SERVICE_KEY' not found in ${{ inputs.versions_file }}"
             exit 1
           fi
 
@@ -56,9 +60,8 @@ jobs:
         env:
           SERVICE_KEY: ${{ inputs.service_key }}
           IMAGE_TAG: ${{ inputs.image_tag }}
-          VERSIONS_FILE: ${{ inputs.versions_file }}
         run: |
-          yq -i ".[\"$SERVICE_KEY\"].image.tag = \"$IMAGE_TAG\"" "$VERSIONS_FILE"
+          yq -i '.[env(SERVICE_KEY)].image.tag = env(IMAGE_TAG)' "${{ inputs.versions_file }}"
 
       - name: Check for changes
         id: diff
