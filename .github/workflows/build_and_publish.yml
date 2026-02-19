@@ -31,6 +31,10 @@ on:
         required: false
         description: 'Path to the pyproject file.'
         default: ""
+    outputs:
+      app_version:
+        description: 'The application version extracted from pyproject.toml'
+        value: ${{ jobs.get-version.outputs.app_version }}
     secrets:
       HDC_DOCKER_REGISTRY_URL:
         required: true
@@ -43,6 +47,15 @@ on:
         required: true
       HDC_SERVICES_EXTERNAL_ROBOT_PASSWORD:
         required: true
+      HDC_OVH_REGISTRY_URL:
+        required: true
+        description: 'OVH Docker registry URL'
+      HDC_OVH_ROBOT_USER:
+        required: true
+        description: 'OVH registry robot username'
+      HDC_OVH_ROBOT_PASSWORD:
+        required: true
+        description: 'OVH registry robot password'
 
 jobs:
   get-version:
@@ -93,6 +106,12 @@ jobs:
           registry: ${{ secrets.HDC_DOCKER_REGISTRY_URL }}
           username: ${{ secrets.HDC_ROBOT_USER }}
           password: ${{ secrets.HDC_ROBOT_PASSWORD }}
+      - name: Login to OVH registry
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ secrets.HDC_OVH_REGISTRY_URL }}
+          username: ${{ secrets.HDC_OVH_ROBOT_USER }}
+          password: ${{ secrets.HDC_OVH_ROBOT_PASSWORD }}
       - name: Check if git tag exists
         run: |
           if git rev-parse "refs/tags/${{ needs.get-version.outputs.app_version }}" >/dev/null 2>&1; then
@@ -107,19 +126,22 @@ jobs:
         with:
           images: |
             ${{ secrets.HDC_DOCKER_REGISTRY_URL }}/hdc-services-image${{ inputs.registry_subpath != '' && format('/{0}', inputs.registry_subpath) || '' }}/${{ inputs.service_name }}
+            ${{ secrets.HDC_OVH_REGISTRY_URL }}/hdc-services-image${{ inputs.registry_subpath != '' && format('/{0}', inputs.registry_subpath) || '' }}/${{ inputs.service_name }}
           sep-tags: ','
           tags: |
             type=raw,prefix=${{ matrix.docker_image_target }}-,suffix=,value=${{needs.get-version.outputs.app_version}}
       - name: Image digest
         run: echo ${{ steps.meta.outputs.tags }}
-      - name: Check if Docker image tags exist
+      - name: Check if Docker image tag exists
         shell: bash
         run: |
-          if docker manifest inspect ${{ steps.meta.outputs.tags }} >/dev/null; then
+          # Only check the primary (ebrains) registry tag for idempotency
+          PRIMARY_TAG=$(echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n' | head -1)
+          if docker manifest inspect "$PRIMARY_TAG" >/dev/null 2>&1; then
             echo "Docker image with tag already exists. Please update the version."
             exit 1
           else
-            echo "Image tags do not exist, proceeding..."
+            echo "Image tag does not exist, proceeding..."
           fi
       - name: Build image and push to GitHub Container Registry
         uses: docker/build-push-action@v2
