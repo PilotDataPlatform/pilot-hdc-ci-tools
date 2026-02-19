@@ -39,14 +39,6 @@ jobs:
           token: ${{ secrets.HDC_CSCS_INFRA_READ_WRITE_TOKEN }}
           ref: main
 
-      - name: Install yq
-        env:
-          YQ_VERSION: v4.52.4
-        run: |
-          wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
-          chmod +x /usr/local/bin/yq
-          yq --version
-
       - name: Validate service key exists
         env:
           SERVICE_KEY: ${{ inputs.service_key }}
