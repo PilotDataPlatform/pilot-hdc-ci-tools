@@ -6,7 +6,7 @@ on:
       service_key:
         type: string
         required: true
-        description: 'Key in versions.yaml, e.g. auth-service'
+        description: 'Key in versions.yaml (e.g. auth-service) or label for commit message when using yaml_path'
       image_tag:
         type: string
         required: true
@@ -19,8 +19,18 @@ on:
       versions_file:
         type: string
         required: false
-        default: 'clusters/dev/versions.yaml'
-        description: 'Path to versions.yaml within the gitops repo'
+        default: ''
+        description: 'Explicit file path to update. When empty, defaults to clusters/<environment>/versions.yaml'
+      yaml_path:
+        type: string
+        required: false
+        default: ''
+        description: 'Custom yq path (e.g. .base-chart-hdc.image.tag). When empty, uses .[service_key].image.tag'
+      environment:
+        type: string
+        required: false
+        default: 'dev'
+        description: 'Target environment — used to construct default file path when versions_file is empty'
     secrets:
       HDC_CSCS_INFRA_READ_WRITE_TOKEN:
         required: true
@@ -39,13 +49,30 @@ jobs:
           token: ${{ secrets.HDC_CSCS_INFRA_READ_WRITE_TOKEN }}
           ref: main
 
-      - name: Validate service key exists
+      - name: Resolve target file
+        id: resolve
+        run: |
+          if [ -n "${{ inputs.versions_file }}" ]; then
+            echo "target_file=${{ inputs.versions_file }}" >> $GITHUB_OUTPUT
+          else
+            echo "target_file=clusters/${{ inputs.environment }}/versions.yaml" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Validate target exists
         env:
           SERVICE_KEY: ${{ inputs.service_key }}
         run: |
-          if ! yq -e '.[env(SERVICE_KEY)]' "${{ inputs.versions_file }}" > /dev/null 2>&1; then
-            echo "::error::service_key '$SERVICE_KEY' not found in ${{ inputs.versions_file }}"
-            exit 1
+          TARGET_FILE="${{ steps.resolve.outputs.target_file }}"
+          if [ -n "${{ inputs.yaml_path }}" ]; then
+            if ! yq -e '${{ inputs.yaml_path }}' "$TARGET_FILE" > /dev/null 2>&1; then
+              echo "::error::yaml_path '${{ inputs.yaml_path }}' not found in $TARGET_FILE"
+              exit 1
+            fi
+          else
+            if ! yq -e '.[env(SERVICE_KEY)]' "$TARGET_FILE" > /dev/null 2>&1; then
+              echo "::error::service_key '$SERVICE_KEY' not found in $TARGET_FILE"
+              exit 1
+            fi
           fi
 
       - name: Update image tag
@@ -53,14 +80,19 @@ jobs:
           SERVICE_KEY: ${{ inputs.service_key }}
           IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          yq -i '.[env(SERVICE_KEY)].image.tag = env(IMAGE_TAG)' "${{ inputs.versions_file }}"
+          TARGET_FILE="${{ steps.resolve.outputs.target_file }}"
+          if [ -n "${{ inputs.yaml_path }}" ]; then
+            yq -i '${{ inputs.yaml_path }} = env(IMAGE_TAG)' "$TARGET_FILE"
+          else
+            yq -i '.[env(SERVICE_KEY)].image.tag = env(IMAGE_TAG)' "$TARGET_FILE"
+          fi
 
       - name: Check for changes
         id: diff
         run: |
           if git diff --quiet; then
             echo "changed=false" >> $GITHUB_OUTPUT
-            echo "No changes to versions.yaml — tag already up to date"
+            echo "No changes — tag already up to date"
           else
             echo "changed=true" >> $GITHUB_OUTPUT
             git diff
