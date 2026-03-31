@@ -84,10 +84,10 @@ jobs:
 
       - name: Ensure cache is healthy
         if: steps.cached-poetry-dependencies.outputs.cache-hit == 'true'
-        run: timeout 10s poetry run pip --version || rm -rf .venv
+        run: timeout 10s poetry -C ${{ inputs.poetry_directory }} run pip --version || rm -rf .venv
 
       - name: Pin Poetry to setup-python version
-        run: poetry env use '${{ steps.setup-python.outputs.python-path }}'
+        run: poetry -C ${{ inputs.poetry_directory }} env use '${{ steps.setup-python.outputs.python-path }}'
 
       - name: Install dependencies
         run: poetry install --no-interaction --directory ${{ inputs.poetry_directory }}
